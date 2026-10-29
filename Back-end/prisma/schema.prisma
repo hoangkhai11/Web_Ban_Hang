@@ -1,0 +1,211 @@
+// GICUNGCO — Mô hình dữ liệu MySQL
+// 3 thực thể cơ bản theo LAB 4: Products, Customers (bảng users), Orders.
+// Mở rộng: Categories, OrderItems, OrderStatusHistory, Promotions, ProductAttributes, Settings.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPING
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+}
+
+enum PaymentMethod {
+  COD
+}
+
+enum PromotionType {
+  PRODUCT_PERCENT
+  FREE_SHIPPING
+}
+
+/// Danh mục 2 cấp (LAB 6). parentId = null là danh mục cấp 1.
+model Category {
+  id          Int        @id @default(autoincrement())
+  slug        String     @unique @db.VarChar(100)
+  name        String     @db.VarChar(100)
+  description String     @default("") @db.VarChar(500)
+  icon        String     @default("Box") @db.VarChar(50)
+  parentId    Int?       @map("parent_id")
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Category[] @relation("CategoryTree")
+  products    Product[]
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  @@map("categories")
+}
+
+/// Sản phẩm (LAB 4 — Products). Giá lưu bằng VNĐ (số nguyên).
+model Product {
+  id                Int                @id @default(autoincrement())
+  code              String             @unique @db.VarChar(50)
+  slug              String             @unique @db.VarChar(255)
+  name              String             @db.VarChar(255)
+  categoryId        Int                @map("category_id")
+  category          Category           @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brand             String             @db.VarChar(100)
+  price             Int
+  stock             Int                @default(0)
+  images            Json
+  highlights        Json
+  description       String             @db.Text
+  specs             Json
+  warrantyMonths    Int                @default(12) @map("warranty_months")
+  soldCount         Int                @default(0) @map("sold_count")
+  compatibilityNote String?            @map("compatibility_note") @db.VarChar(500)
+  isActive          Boolean            @default(true) @map("is_active")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  attributes        ProductAttribute[]
+  orderItems        OrderItem[]
+  promotions        PromotionProduct[]
+
+  @@index([categoryId])
+  @@index([brand])
+  @@map("products")
+}
+
+/// Thuộc tính lọc đã chuẩn hóa (cpu, ram, storage, screenSize...) — mỗi khóa 1 giá trị/sản phẩm.
+model ProductAttribute {
+  productId Int     @map("product_id")
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  key       String  @db.VarChar(50)
+  value     String  @db.VarChar(100)
+
+  @@id([productId, key])
+  @@index([key, value])
+  @@map("product_attributes")
+}
+
+/// Khách hàng & quản trị viên (LAB 4 — Customers). Mật khẩu chỉ lưu dạng băm bcrypt.
+model User {
+  id           Int      @id @default(autoincrement())
+  fullName     String   @map("full_name") @db.VarChar(100)
+  email        String   @unique @db.VarChar(150)
+  phone        String   @db.VarChar(20)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  address      String   @default("") @db.VarChar(255)
+  role         Role     @default(CUSTOMER)
+  createdAt    DateTime @default(now()) @map("created_at")
+  orders       Order[]
+
+  @@map("users")
+}
+
+/// Đơn hàng (LAB 4 — Orders). Trạng thái đơn và trạng thái thanh toán được tách riêng.
+model Order {
+  id            Int                  @id @default(autoincrement())
+  code          String               @unique @db.VarChar(20)
+  userId        Int                  @map("user_id")
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  subtotal      Int
+  discountTotal Int                  @map("discount_total")
+  shippingFee   Int                  @map("shipping_fee")
+  total         Int
+  status        OrderStatus          @default(PENDING)
+  paymentMethod PaymentMethod        @default(COD) @map("payment_method")
+  paymentStatus PaymentStatus        @default(UNPAID) @map("payment_status")
+  shipFullName  String               @map("ship_full_name") @db.VarChar(100)
+  shipPhone     String               @map("ship_phone") @db.VarChar(20)
+  shipProvince  String               @map("ship_province") @db.VarChar(100)
+  shipDistrict  String               @map("ship_district") @db.VarChar(100)
+  shipAddress   String               @map("ship_address") @db.VarChar(255)
+  shipNote      String               @default("") @map("ship_note") @db.VarChar(500)
+  stockReleased Boolean              @default(false) @map("stock_released")
+  completedAt   DateTime?            @map("completed_at")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+  items         OrderItem[]
+  history       OrderStatusHistory[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}
+
+/// Chi tiết đơn hàng — lưu giá TẠI THỜI ĐIỂM MUA để không bị ảnh hưởng khi giá sản phẩm thay đổi.
+model OrderItem {
+  id            Int     @id @default(autoincrement())
+  orderId       Int     @map("order_id")
+  order         Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId     Int     @map("product_id")
+  product       Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productCode   String  @map("product_code") @db.VarChar(50)
+  productName   String  @map("product_name") @db.VarChar(255)
+  image         String  @db.VarChar(500)
+  originalPrice Int     @map("original_price")
+  unitPrice     Int     @map("unit_price")
+  quantity      Int
+  lineTotal     Int     @map("line_total")
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id        Int         @id @default(autoincrement())
+  orderId   Int         @map("order_id")
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String      @default("") @db.VarChar(500)
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+/// Chương trình khuyến mãi (LAB 3 — Mục tiêu 3).
+model Promotion {
+  id            Int                @id @default(autoincrement())
+  name          String             @db.VarChar(150)
+  type          PromotionType
+  value         Int                @default(0) // % giảm (PRODUCT_PERCENT)
+  minOrderValue Int                @default(0) @map("min_order_value") // ngưỡng (FREE_SHIPPING)
+  startDate     DateTime           @map("start_date") @db.Date
+  endDate       DateTime           @map("end_date") @db.Date
+  isActive      Boolean            @default(true) @map("is_active")
+  description   String             @default("") @db.VarChar(500)
+  conditions    Json
+  products      PromotionProduct[]
+
+  @@map("promotions")
+}
+
+model PromotionProduct {
+  promotionId Int       @map("promotion_id")
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  productId   Int       @map("product_id")
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, productId])
+  @@map("promotion_products")
+}
+
+/// Cấu hình cửa hàng dạng key-value (VD: base_shipping_fee).
+model Setting {
+  key   String @id @db.VarChar(50)
+  value String @db.VarChar(255)
+
+  @@map("settings")
+}

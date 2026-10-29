@@ -1,0 +1,22 @@
+# Dependencies & build
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.tsbuildinfo
+
+# Biến môi trường (mật khẩu DB, JWT secret) — chỉ commit .env.example
+.env
+.env.*
+!.env.example
+
+# Tài liệu báo cáo (không phải mã nguồn)
+*.docx
+*.pdf
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
